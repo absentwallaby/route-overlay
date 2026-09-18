@@ -1,0 +1,13 @@
+{
+  "name": "Route Overlay",
+  "short_name": "RouteOverlay",
+  "description": "Overlay a Garmin Connect route (GPX/TCX/KML) onto a photo of an orienteering map.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f4ee",
+  "theme_color": "#d5601f",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Route Overlay</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon.svg">
+<meta name="theme-color" content="#d5601f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>
+  :root {
+    --bg: #f6f4ee;
+    --panel: #ffffff;
+    --ink: #1c231d;
+    --ink-dim: #5b6459;
+    --line: #d9d4c6;
+    --accent: #d5601f;
+    --accent-ink: #ffffff;
+    --route: #e2401c;
+    --start: #2f7d4f;
+    --finish: #1c231d;
+    --control-a: #2f7d4f;
+    --control-b: #d5601f;
+    --shadow: 0 1px 2px rgba(20,20,10,0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171a15;
+      --panel: #21251e;
+      --ink: #ece7da;
+      --ink-dim: #a6a596;
+      --line: #3a3f33;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #171a15;
+    --panel: #21251e;
+    --ink: #ece7da;
+    --ink-dim: #a6a596;
+    --line: #3a3f33;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 14px 14px 40px;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    margin: 4px 0 2px;
+  }
+  .sub {
+    color: var(--ink-dim);
+    font-size: 13.5px;
+    margin: 0 0 16px;
+    line-height: 1.45;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .card h2 {
+    font-size: 13px;
+    font-weight: 650;
+    margin: 0 0 10px;
+    color: var(--ink);
+  }
+  .step-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: 11px;
+    font-weight: 700;
+    margin-right: 7px;
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input[type="file"] {
+    font-size: 13px;
+    color: var(--ink-dim);
+    max-width: 100%;
+  }
+  button {
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 8px 13px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  button:active { transform: translateY(1px); }
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  button.on {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--bg);
+  }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .status {
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    margin-top: 8px;
+    line-height: 1.5;
+    min-height: 1.2em;
+  }
+  .status.active { color: var(--accent); font-weight: 600; }
+  .canvases {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .mini-wrap {
+    flex: 0 0 110px;
+  }
+  .mini-wrap .label {
+    font-size: 11px;
+    color: var(--ink-dim);
+    margin-bottom: 5px;
+    text-align: center;
+  }
+  #miniCanvas {
+    width: 100%;
+    aspect-ratio: 1;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    touch-action: none;
+  }
+  .map-wrap {
+    flex: 1;
+    min-width: 0;
+  }
+  #mapCanvas {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: repeating-conic-gradient(var(--line) 0% 25%, transparent 0% 50%) 50% / 16px 16px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    touch-action: none;
+  }
+  .pairs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .pair-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12.5px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 9px;
+  }
+  .pair-item .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--control-b);
+    margin-right: 7px;
+  }
+  .pair-item button {
+    padding: 3px 8px;
+    font-size: 11.5px;
+    border: none;
+    background: transparent;
+    color: var(--ink-dim);
+  }
+  .sliders {
+    display: grid;
+    grid-template-columns: 60px 1fr 46px;
+    gap: 8px 10px;
+    align-items: center;
+    font-size: 12.5px;
+    margin-top: 10px;
+  }
+  .sliders label { color: var(--ink-dim); }
+  .sliders input[type="range"] { width: 100%; }
+  .sliders .val { text-align: right; font-variant-numeric: tabular-nums; }
+  .hint {
+    font-size: 12px;
+    color: var(--ink-dim);
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+  footer {
+    text-align: center;
+    color: var(--ink-dim);
+    font-size: 11.5px;
+    margin-top: 18px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Route Overlay</h1>
+<p class="sub">Overlay a route from Garmin Connect (GPX, TCX, or KML) onto a photo of your orienteering map, then align them by hand.</p>
+
+<div class="card">
+  <h2><span class="step-badge">1</span>Load your route</h2>
+  <p class="hint" style="margin-top:-4px;">Accepts .gpx, .tcx, or .kml files.</p>
+  <div class="row">
+    <input type="file" id="gpxInput" accept=".gpx,.tcx,.kml,application/gpx+xml,application/vnd.garmin.tcx+xml,application/vnd.google-earth.kml+xml,text/xml,application/xml">
+  </div>
+  <div class="status" id="gpxStatus">No route loaded yet.</div>
+</div>
+
+<div class="card">
+  <h2><span class="step-badge">2</span>Load the map photo</h2>
+  <div class="row">
+    <input type="file" id="photoInput" accept="image/*">
+  </div>
+  <div class="status" id="photoStatus">No photo loaded yet.</div>
+</div>
+
+<div class="card" id="alignCard" style="display:none;">
+  <h2><span class="step-badge">3</span>Match points, then fine-tune</h2>
+  <div class="canvases">
+    <div class="mini-wrap">
+      <div class="label">Your route</div>
+      <canvas id="miniCanvas" width="300" height="300"></canvas>
+    </div>
+    <div class="map-wrap">
+      <canvas id="mapCanvas"></canvas>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:10px;">
+    <button id="addPointBtn" class="primary">Add matching point</button>
+    <button id="clearPointsBtn">Clear points</button>
+  </div>
+  <div class="status" id="pairStatus">Tap a point on your route, then tap the same spot on the map photo. Add at least 2 — 3 or 4 spread apart works best.</div>
+
+  <div class="pairs-list" id="pairsList"></div>
+
+  <div class="sliders" id="fineTune" style="display:none;">
+    <label>Rotate</label>
+    <input type="range" id="rotSlider" min="-45" max="45" step="0.2" value="0">
+    <span class="val" id="rotVal">0°</span>
+
+    <label>Scale</label>
+    <input type="range" id="scaleSlider" min="-30" max="30" step="0.2" value="0">
+    <span class="val" id="scaleVal">100%</span>
+
+    <label>Nudge X</label>
+    <input type="range" id="dxSlider" min="-200" max="200" step="1" value="0">
+    <span class="val" id="dxVal">0</span>
+
+    <label>Nudge Y</label>
+    <input type="range" id="dySlider" min="-200" max="200" step="1" value="0">
+    <span class="val" id="dyVal">0</span>
+  </div>
+  <div class="hint" id="dragHint" style="display:none;">You can also drag the route directly on the map photo to nudge it. Use the sliders for rotation and scale.</div>
+  <div class="row" id="resetRow" style="display:none; margin-top:6px;">
+    <button id="resetTuneBtn">Reset fine-tune</button>
+  </div>
+</div>
+
+<div class="card" id="exportCard" style="display:none;">
+  <h2><span class="step-badge">4</span>Save</h2>
+  <div class="row">
+    <button id="exportBtn" class="primary">Download image</button>
+  </div>
+  <div class="status">Downloads the photo with the route drawn on top, at full photo resolution.</div>
+</div>
+
+<footer>Runs entirely on your phone — nothing is uploaded anywhere. Add this page to your home screen for one-tap access.</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- state ----------
+  var gpxPoints = null;      // [{lat, lon}]
+  var metersPoints = null;   // [{x, y}] local equirectangular meters, y = north-positive
+  var miniBounds = null;     // {minX,maxX,minY,maxY}
+  var img = new Image();
+  var imgLoaded = false;
+
+  var controlPoints = []; // {sx, sy (meters), px, py (natural image px)}
+  var pendingMini = null; // {x, y} meters, chosen but not yet paired
+
+  var addMode = false;
+
+  // similarity transform (meters -> natural image px), computed from controlPoints
+  var xform = null; // {a_re, a_im, muS:{x,y}, muT:{x,y}}
+
+  // manual fine-tune on top of xform
+  var tune = { rotDeg: 0, scalePct: 0, dx: 0, dy: 0 };
+
+  // drag state for direct-drag-on-map
+  var dragging = false;
+  var dragStart = null;
+  var tuneStartDrag = null;
+
+  // ---------- elements ----------
+  var gpxInput = document.getElementById('gpxInput');
+  var gpxStatus = document.getElementById('gpxStatus');
+  var photoInput = document.getElementById('photoInput');
+  var photoStatus = document.getElementById('photoStatus');
+  var alignCard = document.getElementById('alignCard');
+  var exportCard = document.getElementById('exportCard');
+  var miniCanvas = document.getElementById('miniCanvas');
+  var mapCanvas = document.getElementById('mapCanvas');
+  var miniCtx = miniCanvas.getContext('2d');
+  var mapCtx = mapCanvas.getContext('2d');
+  var addPointBtn = document.getElementById('addPointBtn');
+  var clearPointsBtn = document.getElementById('clearPointsBtn');
+  var pairStatus = document.getElementById('pairStatus');
+  var pairsList = document.getElementById('pairsList');
+  var fineTune = document.getElementById('fineTune');
+  var dragHint = document.getElementById('dragHint');
+  var resetRow = document.getElementById('resetRow');
+  var resetTuneBtn = document.getElementById('resetTuneBtn');
+  var exportBtn = document.getElementById('exportBtn');
+
+  var rotSlider = document.getElementById('rotSlider');
+  var scaleSlider = document.getElementById('scaleSlider');
+  var dxSlider = document.getElementById('dxSlider');
+  var dySlider = document.getElementById('dySlider');
+  var rotVal = document.getElementById('rotVal');
+  var scaleVal = document.getElementById('scaleVal');
+  var dxVal = document.getElementById('dxVal');
+  var dyVal = document.getElementById('dyVal');
+
+  // ---------- GPX parsing ----------
+  gpxInput.addEventListener('change', function(e){
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      try {
+        var pts = parseRouteFile(ev.target.result, file.name);
+        if (!pts.length) {
+          gpxStatus.textContent = 'Could not find any track points in that file.';
+          return;
+        }
+        gpxPoints = pts;
+        computeLocalProjection();
+        gpxStatus.textContent = 'Loaded ' + pts.length + ' points.';
+        drawMini();
+        maybeShowAlignCard();
+      } catch(err) {
+        gpxStatus.textContent = 'Could not read that file as GPX, TCX, or KML.';
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  function parseRouteFile(text, filename){
+    var ext = ((filename || '').split('.').pop() || '').toLowerCase();
+    if (ext === 'tcx') return parseTCX(text);
+    if (ext === 'kml') return parseKML(text);
+    if (ext === 'gpx') return parseGPX(text);
+    // fall back to sniffing the content
+    if (/<trkpt\b/i.test(text) || /<rtept\b/i.test(text)) return parseGPX(text);
+    if (/<Trackpoint\b/i.test(text)) return parseTCX(text);
+    if (/<kml\b/i.test(text) || /<coordinates\b/i.test(text)) return parseKML(text);
+    throw new Error('unrecognized format');
+  }
+
+  function parseGPX(text){
+    var xml = new DOMParser().parseFromString(text, 'application/xml');
+    if (xml.querySelector('parsererror')) throw new Error('bad xml');
+    var pts = [];
+    var nodes = xml.getElementsByTagName('trkpt');
+    if (!nodes.length) nodes = xml.getElementsByTagName('rtept');
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      var lat = parseFloat(n.getAttribute('lat'));
+      var lon = parseFloat(n.getAttribute('lon'));
+      if (isFinite(lat) && isFinite(lon)) pts.push({lat: lat, lon: lon});
+    }
+    return pts;
+  }
+
+  function parseTCX(text){
+    var xml = new DOMParser().parseFromString(text, 'application/xml');
+    if (xml.querySelector('parsererror')) throw new Error('bad xml');
+    var pts = [];
+    var nodes = xml.getElementsByTagName('Trackpoint');
+    for (var i = 0; i < nodes.length; i++) {
+      var posNodes = nodes[i].getElementsByTagName('Position');
+      if (!posNodes.length) continue;
+      var pos = posNodes[0];
+      var latNodes = pos.getElementsByTagName('LatitudeDegrees');
+      var lonNodes = pos.getElementsByTagName('LongitudeDegrees');
+      if (!latNodes.length || !lonNodes.length) continue;
+      var lat = parseFloat(latNodes[0].textContent);
+      var lon = parseFloat(lonNodes[0].textContent);
+      if (isFinite(lat) && isFinite(lon)) pts.push({lat: lat, lon: lon});
+    }
+    return pts;
+  }
+
+  function parseKML(text){
+    var xml = new DOMParser().parseFromString(text, 'application/xml');
+    if (xml.querySelector('parsererror')) throw new Error('bad xml');
+    var pts = [];
+
+    // Google Earth "gx:Track" style: a series of <gx:coord>lon lat alt</gx:coord>
+    var coordNodes = xml.getElementsByTagName('gx:coord');
+    if (coordNodes.length) {
+      for (var i = 0; i < coordNodes.length; i++) {
+        var parts = coordNodes[i].textContent.trim().split(/\s+/);
+        var lon = parseFloat(parts[0]), lat = parseFloat(parts[1]);
+        if (isFinite(lat) && isFinite(lon)) pts.push({lat: lat, lon: lon});
+      }
+      if (pts.length) return pts;
+    }
+
+    // Standard KML LineString: <coordinates>lon,lat,alt lon,lat,alt ...</coordinates>
+    // A file can contain several <coordinates> blocks (e.g. placemark points too),
+    // so pick the block with the most points - that's the track/route.
+    var blocks = xml.getElementsByTagName('coordinates');
+    var best = null, bestCount = 0;
+    for (var b = 0; b < blocks.length; b++) {
+      var tuples = blocks[b].textContent.trim().split(/\s+/).filter(Boolean);
+      if (tuples.length > bestCount) { bestCount = tuples.length; best = tuples; }
+    }
+    if (best) {
+      best.forEach(function(t){
+        var parts = t.split(',');
+        var lon = parseFloat(parts[0]), lat = parseFloat(parts[1]);
+        if (isFinite(lat) && isFinite(lon)) pts.push({lat: lat, lon: lon});
+      });
+    }
+    return pts;
+  }
+
+  function computeLocalProjection(){
+    var lat0 = 0, lon0 = 0;
+    for (var i = 0; i < gpxPoints.length; i++) { lat0 += gpxPoints[i].lat; lon0 += gpxPoints[i].lon; }
+    lat0 /= gpxPoints.length; lon0 /= gpxPoints.length;
+    var cosLat = Math.cos(lat0 * Math.PI / 180);
+    metersPoints = gpxPoints.map(function(p){
+      return {
+        x: (p.lon - lon0) * cosLat * 111320,
+        y: (p.lat - lat0) * 110540 // north-positive
+      };
+    });
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    metersPoints.forEach(function(p){
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    });
+    miniBounds = {minX:minX, maxX:maxX, minY:minY, maxY:maxY};
+  }
+
+  // ---------- photo loading ----------
+  photoInput.addEventListener('change', function(e){
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      img = new Image();
+      img.onload = function(){
+        imgLoaded = true;
+        photoStatus.textContent = 'Loaded (' + img.naturalWidth + '\u00d7' + img.naturalHeight + ').';
+        sizeMapCanvas();
+        drawMap();
+        maybeShowAlignCard();
+      };
+      img.onerror = function(){ photoStatus.textContent = 'Could not read that image.'; };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  function sizeMapCanvas(){
+    var maxW = 900;
+    var w = Math.min(img.naturalWidth, maxW);
+    var h = Math.round(w * img.naturalHeight / img.naturalWidth);
+    mapCanvas.width = w;
+    mapCanvas.height = h;
+  }
+
+  function maybeShowAlignCard(){
+    if (gpxPoints && imgLoaded) {
+      alignCard.style.display = 'block';
+      drawMini();
+      drawMap();
+    }
+  }
+
+  // ---------- mini route diagram ----------
+  function drawMini(){
+    if (!metersPoints) return;
+    var w = miniCanvas.width, h = miniCanvas.height;
+    miniCtx.clearRect(0,0,w,h);
+    var pad = 22;
+    var spanX = Math.max(1, miniBounds.maxX - miniBounds.minX);
+    var spanY = Math.max(1, miniBounds.maxY - miniBounds.minY);
+    var scale = Math.min((w - 2*pad)/spanX, (h - 2*pad)/spanY);
+
+    function toScreen(p){
+      var sx = pad + (p.x - miniBounds.minX) * scale;
+      var sy = h - (pad + (p.y - miniBounds.minY) * scale); // flip: north up
+      return {x: sx, y: sy};
+    }
+
+    miniCtx.lineWidth = 2;
+    miniCtx.strokeStyle = getCss('--route');
+    miniCtx.beginPath();
+    metersPoints.forEach(function(p, i){
+      var s = toScreen(p);
+      if (i === 0) miniCtx.moveTo(s.x, s.y); else miniCtx.lineTo(s.x, s.y);
+    });
+    miniCtx.stroke();
+
+    var s0 = toScreen(metersPoints[0]);
+    var sN = toScreen(metersPoints[metersPoints.length - 1]);
+    miniCtx.fillStyle = getCss('--start');
+    circle(miniCtx, s0.x, s0.y, 4);
+    miniCtx.fillStyle = getCss('--finish');
+    circle(miniCtx, sN.x, sN.y, 4);
+
+    // existing control points
+    controlPoints.forEach(function(cp){
+      var s = toScreen({x: cp.sx, y: cp.sy});
+      miniCtx.fillStyle = getCss('--control-b');
+      circle(miniCtx, s.x, s.y, 5);
+    });
+
+    // pending selection
+    if (pendingMini) {
+      var s = toScreen(pendingMini);
+      miniCtx.strokeStyle = getCss('--control-a');
+      miniCtx.lineWidth = 2;
+      miniCtx.beginPath();
+      miniCtx.arc(s.x, s.y, 7, 0, Math.PI*2);
+      miniCtx.stroke();
+    }
+
+    miniCanvas._toScreen = toScreen;
+    miniCanvas._scale = scale;
+    miniCanvas._pad = pad;
+  }
+
+  function circle(ctx, x, y, r){
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  }
+  function getCss(varName){
+    return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  }
+
+  miniCanvas.addEventListener('pointerdown', function(e){
+    if (!addMode || !metersPoints) return;
+    var rect = miniCanvas.getBoundingClientRect();
+    var scaleX = miniCanvas.width / rect.width, scaleY = miniCanvas.height / rect.height;
+    var cx = (e.clientX - rect.left) * scaleX;
+    var cy = (e.clientY - rect.top) * scaleY;
+    // find nearest track point on screen
+    var best = null, bestD = Infinity;
+    metersPoints.forEach(function(p){
+      var s = miniCanvas._toScreen(p);
+      var d = (s.x-cx)*(s.x-cx) + (s.y-cy)*(s.y-cy);
+      if (d < bestD) { bestD = d; best = p; }
+    });
+    if (best) {
+      pendingMini = best;
+      drawMini();
+      pairStatus.textContent = 'Now tap the matching spot on the map photo.';
+    }
+  });
+
+  // ---------- map canvas: draw photo + overlay ----------
+  function drawMap(){
+    if (!imgLoaded) return;
+    var w = mapCanvas.width, h = mapCanvas.height;
+    mapCtx.clearRect(0,0,w,h);
+    mapCtx.drawImage(img, 0, 0, w, h);
+
+    // draw existing control points (image-space, scaled to canvas)
+    var sc = w / img.naturalWidth;
+    controlPoints.forEach(function(cp){
+      mapCtx.fillStyle = getCss('--control-b');
+      circle(mapCtx, cp.px*sc, cp.py*sc, 5);
+    });
+
+    if (xform) drawRouteOverlay(sc);
+  }
+
+  function drawRouteOverlay(sc){
+    var w = mapCanvas.width;
+    var lineW = Math.max(2, img.naturalWidth / 260) * sc;
+    mapCtx.save();
+    mapCtx.globalAlpha = 0.85;
+    mapCtx.strokeStyle = getCss('--route');
+    mapCtx.lineWidth = lineW;
+    mapCtx.lineJoin = 'round';
+    mapCtx.lineCap = 'round';
+    mapCtx.beginPath();
+    metersPoints.forEach(function(p, i){
+      var px = projectPoint(p);
+      var x = px.x * sc, y = px.y * sc;
+      if (i === 0) mapCtx.moveTo(x,y); else mapCtx.lineTo(x,y);
+    });
+    mapCtx.stroke();
+
+    var p0 = projectPoint(metersPoints[0]);
+    var pN = projectPoint(metersPoints[metersPoints.length-1]);
+    mapCtx.globalAlpha = 1;
+    mapCtx.fillStyle = getCss('--start');
+    circle(mapCtx, p0.x*sc, p0.y*sc, lineW*1.6);
+    mapCtx.fillStyle = getCss('--finish');
+    circle(mapCtx, pN.x*sc, pN.y*sc, lineW*1.6);
+    mapCtx.restore();
+  }
+
+  // complex-number similarity fit: meters -> natural image px
+  function computeTransform(){
+    if (controlPoints.length < 2) { xform = null; return; }
+    var n = controlPoints.length;
+    var muS = {x:0,y:0}, muT = {x:0,y:0};
+    controlPoints.forEach(function(cp){
+      muS.x += cp.sx; muS.y += cp.sy;
+      muT.x += cp.px; muT.y += cp.py;
+    });
+    muS.x /= n; muS.y /= n; muT.x /= n; muT.y /= n;
+
+    var num_re = 0, num_im = 0, den = 0;
+    controlPoints.forEach(function(cp){
+      var sx = cp.sx - muS.x, sy = cp.sy - muS.y;
+      var tx = cp.px - muT.x, ty = cp.py - muT.y;
+      // a = sum(conj(s)*t) / sum(|s|^2), s=sx+i*sy, t=tx+i*ty
+      // conj(s)*t = (sx - i sy)(tx + i ty) = (sx*tx + sy*ty) + i(sx*ty - sy*tx)
+      num_re += sx*tx + sy*ty;
+      num_im += sx*ty - sy*tx;
+      den += sx*sx + sy*sy;
+    });
+    if (den < 1e-9) { xform = null; return; }
+    xform = { a_re: num_re/den, a_im: num_im/den, muS: muS, muT: muT };
+  }
+
+  function projectPoint(p){
+    if (!xform) return {x:0,y:0};
+    var sx = p.x - xform.muS.x, sy = p.y - xform.muS.y;
+
+    var extraRot = tune.rotDeg * Math.PI/180;
+    var extraScale = 1 + tune.scalePct/100;
+    var cosE = Math.cos(extraRot), sinE = Math.sin(extraRot);
+    var a_re = xform.a_re, a_im = xform.a_im;
+    // combined = a * extraScale * e^{i extraRot}
+    var c_re = (a_re*cosE - a_im*sinE) * extraScale;
+    var c_im = (a_re*sinE + a_im*cosE) * extraScale;
+
+    var tx = c_re*sx - c_im*sy;
+    var ty = c_im*sx + c_re*sy;
+
+    return { x: tx + xform.muT.x + tune.dx, y: ty + xform.muT.y + tune.dy };
+  }
+
+  // ---------- add-point flow ----------
+  addPointBtn.addEventListener('click', function(){
+    addMode = !addMode;
+    addPointBtn.classList.toggle('on', addMode);
+    addPointBtn.textContent = addMode ? 'Cancel' : 'Add matching point';
+    pendingMini = null;
+    pairStatus.className = 'status' + (addMode ? ' active' : '');
+    pairStatus.textContent = addMode
+      ? 'Tap a point on your route, then tap the same spot on the map photo.'
+      : 'Tap "Add matching point" to add another, or fine-tune below.';
+    drawMini();
+  });
+
+  mapCanvas.addEventListener('pointerdown', function(e){
+    if (!imgLoaded) return;
+    var rect = mapCanvas.getBoundingClientRect();
+    var scaleX = mapCanvas.width / rect.width, scaleY = mapCanvas.height / rect.height;
+    var cx = (e.clientX - rect.left) * scaleX;
+    var cy = (e.clientY - rect.top) * scaleY;
+
+    if (addMode) {
+      if (!pendingMini) {
+        pairStatus.textContent = 'Tap a point on your route first (left square).';
+        return;
+      }
+      var sc = mapCanvas.width / img.naturalWidth;
+      var px = cx / sc, py = cy / sc;
+      controlPoints.push({ sx: pendingMini.x, sy: pendingMini.y, px: px, py: py });
+      pendingMini = null;
+      addMode = false;
+      addPointBtn.classList.remove('on');
+      addPointBtn.textContent = 'Add matching point';
+      computeTransform();
+      renderPairsList();
+      drawMini();
+      drawMap();
+      updateUiVisibility();
+      pairStatus.className = 'status';
+      pairStatus.textContent = controlPoints.length < 2
+        ? 'Added. Add one more point to align the route.'
+        : 'Add another point for a better fit, or fine-tune below.';
+      return;
+    }
+
+    // direct drag of overlay when not adding points
+    if (xform) {
+      dragging = true;
+      dragStart = {x: e.clientX, y: e.clientY};
+      tuneStartDrag = {dx: tune.dx, dy: tune.dy};
+    }
+  });
+
+  window.addEventListener('pointermove', function(e){
+    if (!dragging) return;
+    var rect = mapCanvas.getBoundingClientRect();
+    var sc = mapCanvas.width / img.naturalWidth;
+    var dxCanvas = (e.clientX - dragStart.x) * (mapCanvas.width/rect.width);
+    var dyCanvas = (e.clientY - dragStart.y) * (mapCanvas.height/rect.height);
+    tune.dx = tuneStartDrag.dx + dxCanvas / sc;
+    tune.dy = tuneStartDrag.dy + dyCanvas / sc;
+    clampSlider(dxSlider, tune.dx); clampSlider(dySlider, tune.dy);
+    dxVal.textContent = Math.round(tune.dx);
+    dyVal.textContent = Math.round(tune.dy);
+    drawMap();
+  });
+  window.addEventListener('pointerup', function(){ dragging = false; });
+
+  function clampSlider(slider, value){
+    var min = parseFloat(slider.min), max = parseFloat(slider.max);
+    slider.value = Math.max(min, Math.min(max, value));
+  }
+
+  function renderPairsList(){
+    pairsList.innerHTML = '';
+    controlPoints.forEach(function(cp, i){
+      var row = document.createElement('div');
+      row.className = 'pair-item';
+      var left = document.createElement('span');
+      left.innerHTML = '<span class="dot"></span>Point ' + (i+1);
+      var del = document.createElement('button');
+      del.textContent = 'Remove';
+      del.addEventListener('click', function(){
+        controlPoints.splice(i,1);
+        computeTransform();
+        renderPairsList();
+        drawMini(); drawMap();
+        updateUiVisibility();
+      });
+      row.appendChild(left); row.appendChild(del);
+      pairsList.appendChild(row);
+    });
+  }
+
+  clearPointsBtn.addEventListener('click', function(){
+    controlPoints = [];
+    pendingMini = null;
+    computeTransform();
+    renderPairsList();
+    drawMini(); drawMap();
+    updateUiVisibility();
+    pairStatus.className = 'status';
+    pairStatus.textContent = 'Tap a point on your route, then tap the same spot on the map photo.';
+  });
+
+  function updateUiVisibility(){
+    var ready = controlPoints.length >= 2;
+    fineTune.style.display = ready ? 'grid' : 'none';
+    dragHint.style.display = ready ? 'block' : 'none';
+    resetRow.style.display = ready ? 'flex' : 'none';
+    exportCard.style.display = ready ? 'block' : 'none';
+  }
+
+  // ---------- fine-tune sliders ----------
+  function onTuneChange(){
+    tune.rotDeg = parseFloat(rotSlider.value);
+    tune.scalePct = parseFloat(scaleSlider.value);
+    tune.dx = parseFloat(dxSlider.value);
+    tune.dy = parseFloat(dySlider.value);
+    rotVal.textContent = tune.rotDeg.toFixed(1) + '\u00b0';
+    scaleVal.textContent = Math.round(100 + tune.scalePct) + '%';
+    dxVal.textContent = Math.round(tune.dx);
+    dyVal.textContent = Math.round(tune.dy);
+    drawMap();
+  }
+  [rotSlider, scaleSlider, dxSlider, dySlider].forEach(function(s){
+    s.addEventListener('input', onTuneChange);
+  });
+
+  resetTuneBtn.addEventListener('click', function(){
+    tune = {rotDeg:0, scalePct:0, dx:0, dy:0};
+    rotSlider.value = 0; scaleSlider.value = 0; dxSlider.value = 0; dySlider.value = 0;
+    onTuneChange();
+  });
+
+  // ---------- export ----------
+  exportBtn.addEventListener('click', function(){
+    var w = img.naturalWidth, h = img.naturalHeight;
+    var out = document.createElement('canvas');
+    out.width = w; out.height = h;
+    var octx = out.getContext('2d');
+    octx.drawImage(img, 0, 0, w, h);
+
+    var lineW = Math.max(3, w / 260);
+    octx.save();
+    octx.globalAlpha = 0.85;
+    octx.strokeStyle = getCss('--route');
+    octx.lineWidth = lineW;
+    octx.lineJoin = 'round'; octx.lineCap = 'round';
+    octx.beginPath();
+    metersPoints.forEach(function(p, i){
+      var pt = projectPoint(p);
+      if (i === 0) octx.moveTo(pt.x, pt.y); else octx.lineTo(pt.x, pt.y);
+    });
+    octx.stroke();
+    var p0 = projectPoint(metersPoints[0]);
+    var pN = projectPoint(metersPoints[metersPoints.length-1]);
+    octx.globalAlpha = 1;
+    octx.fillStyle = getCss('--start'); circle(octx, p0.x, p0.y, lineW*1.6);
+    octx.fillStyle = getCss('--finish'); circle(octx, pN.x, pN.y, lineW*1.6);
+    octx.restore();
+
+    out.toBlob(function(blob){
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'route-overlay.png';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }, 'image/png');
+  });
+
+  window.addEventListener('resize', function(){
+    if (imgLoaded) { sizeMapCanvas(); drawMap(); }
+  });
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('sw.js').catch(function(){});
+    });
+  }
+
+})();
+</script>
+</body>
+</html>
