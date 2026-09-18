@@ -377,7 +377,7 @@
     <script type='text/javascript' src='https://storage.ko-fi.com/cdn/widget/Widget_2.js'></script>
     <script type='text/javascript'>kofiwidget2.init('Support me on Ko-fi', '#72a4f2', 'B1I8277GQK');kofiwidget2.draw();</script>
   </div>
-  <div style="margin-top:6px;">v0.4.3</div>
+  <div style="margin-top:6px;">v0.4.4</div>
 </footer>
 
 <script>
@@ -1126,7 +1126,7 @@
       var d = Math.hypot(t.x - px, t.y - py);
       if (d < bestD) { bestD = d; best = t; }
     });
-    if (best && bestD <= best.r * 2.2) return { x: best.x, y: best.y, snapped: true };
+    if (best && bestD <= best.r * 8) return { x: best.x, y: best.y, snapped: true }; // ~4 diameters
     return { x: px, y: py, snapped: false };
   }
 
