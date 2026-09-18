@@ -70,6 +70,41 @@
     margin: 0 0 16px;
     line-height: 1.45;
   }
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    margin: 0 0 14px;
+    padding: 4px;
+    background: var(--line);
+    border-radius: 8px;
+  }
+  .tab {
+    padding: 8px 6px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--ink-dim);
+    font-size: 12.5px;
+    white-space: normal;
+  }
+  .tab.active {
+    background: var(--panel);
+    color: var(--ink);
+  }
+  .tab-panel[hidden] { display: none; }
+  .info-panel { padding: 2px 2px 8px; }
+  .info-panel h2 { font-size: 17px; margin: 4px 0 12px; }
+  .info-panel p,
+  .info-panel li {
+    color: var(--ink-dim);
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  .info-panel ol { margin: 0; padding-left: 23px; }
+  .info-panel li { margin-bottom: 12px; }
+  .info-panel strong { color: var(--ink); }
+  .info-panel a { color: var(--accent); }
   .card {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -224,7 +259,16 @@
 <body>
 
 <h1>Route Overlay</h1>
-<p class="sub">Overlay a route from Garmin Connect (GPX, TCX, or KML) onto a photo of your orienteering map, then align them by hand.</p>
+<p class="sub">Overlay a route from Garmin Connect onto a photo of your orienteering map, then align them by hand.</p>
+
+<nav class="tabs" aria-label="Main navigation">
+  <button class="tab active" type="button" data-tab="routePanel" aria-selected="true">Route overlay</button>
+  <button class="tab" type="button" data-tab="instructionsPanel" aria-selected="false">Instructions</button>
+  <button class="tab" type="button" data-tab="whyPanel" aria-selected="false">Why use this tool</button>
+</nav>
+
+<main>
+<section id="routePanel" class="tab-panel">
 
 <div class="card">
   <h2><span class="step-badge">1</span>Load your route</h2>
@@ -299,6 +343,25 @@
   </div>
   <div class="status">Downloads the photo with the route drawn on top, at full photo resolution.</div>
 </div>
+</section>
+
+<section id="instructionsPanel" class="tab-panel info-panel" hidden>
+  <h2>Instructions</h2>
+  <ol>
+    <li><strong>Take a photo of the map.</strong> Keep north at the top of the page. If your camera app has a scan capability, that can make a straight, well-framed image easier.</li>
+    <li><strong>Download your route file.</strong> GPX, FIT, or TCX files are commonly available from your route or activity; choose GPX for this tool. With Garmin, use <a href="https://connect.garmin.com/" target="_blank" rel="noopener">connect.garmin.com</a> in a web browser, open the activity, click the cog, and choose <strong>Export to GPX</strong>.</li>
+    <li><strong>Choose the files here.</strong> On the Route overlay tab, load your route file and your map photo.</li>
+    <li><strong>Set the alignment.</strong> Click <strong>Add Matching Point</strong>, tap a recognizable point on the route diagram, then tap the same physical point on the map photo. Repeat with at least two points; three or four points spread around the map usually give a better fit. Confirm each pair after adjusting either marker if needed. Then use the rotate, scale, and nudge sliders for final accuracy. Direct dragging is available as an optional fine adjustment.</li>
+    <li><strong>Download the image.</strong> When you are happy with the alignment, click <strong>Download image</strong>. The result uses the map photo filename with <strong>-route</strong> added before the extension.</li>
+  </ol>
+</section>
+
+<section id="whyPanel" class="tab-panel info-panel" hidden>
+  <h2>Why use this tool?</h2>
+  <p>This project was started to provide new or young orienteers, who may not feel comfortable sharing what they did, with a private way to put their route on a map and learn from it.</p>
+  <p>Everything happens in your browser. Your route and map photo stay on your device, so you can review your choices and understand your navigation without having to share the activity online.</p>
+</section>
+</main>
 
 <footer>
   Runs entirely on your phone — nothing is uploaded anywhere. Add this page to your home screen for one-tap access.
@@ -306,7 +369,7 @@
     <script type='text/javascript' src='https://storage.ko-fi.com/cdn/widget/Widget_2.js'></script>
     <script type='text/javascript'>kofiwidget2.init('Support me on Ko-fi', '#72a4f2', 'B1I8277GQK');kofiwidget2.draw();</script>
   </div>
-  <div style="margin-top:6px;">v0.3.1</div>
+  <div style="margin-top:6px;">v0.4.0</div>
 </footer>
 
 <script>
@@ -375,6 +438,8 @@
   var resetTuneBtn = document.getElementById('resetTuneBtn');
   var dragRouteBtn = document.getElementById('dragRouteBtn');
   var exportBtn = document.getElementById('exportBtn');
+  var tabButtons = document.querySelectorAll('.tab');
+  var tabPanels = document.querySelectorAll('.tab-panel');
 
   var rotSlider = document.getElementById('rotSlider');
   var scaleSlider = document.getElementById('scaleSlider');
@@ -384,6 +449,18 @@
   var scaleVal = document.getElementById('scaleVal');
   var dxVal = document.getElementById('dxVal');
   var dyVal = document.getElementById('dyVal');
+
+  tabButtons.forEach(function(button){
+    button.addEventListener('click', function(){
+      var targetId = button.getAttribute('data-tab');
+      tabButtons.forEach(function(tab){
+        var active = tab === button;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      tabPanels.forEach(function(panel){ panel.hidden = panel.id !== targetId; });
+    });
+  });
 
   // ---------- pinch-zoom / pan ----------
   function toContent(view, x, y){
