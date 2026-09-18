@@ -299,7 +299,7 @@
   <div class="status">Downloads the photo with the route drawn on top, at full photo resolution.</div>
 </div>
 
-<footer>Runs entirely on your phone — nothing is uploaded anywhere. Add this page to your home screen for one-tap access.</footer>
+<footer>Runs entirely on your phone — nothing is uploaded anywhere. Add this page to your home screen for one-tap access.<br>v0.2.1</footer>
 
 <script>
 (function(){
@@ -307,7 +307,7 @@
 
   // ---------- state ----------
   var gpxPoints = null;      // [{lat, lon}]
-  var metersPoints = null;   // [{x, y}] local equirectangular meters, y = north-positive
+  var metersPoints = null;   // [{x, y}] local equirectangular meters, y-down (matches map photo pixel y)
   var miniBounds = null;     // {minX,maxX,minY,maxY}
   var img = new Image();
   var imgLoaded = false;
@@ -547,7 +547,7 @@
     metersPoints = gpxPoints.map(function(p){
       return {
         x: (p.lon - lon0) * cosLat * 111320,
-        y: (p.lat - lat0) * 110540 // north-positive
+        y: -(p.lat - lat0) * 110540 // y-down (south-positive), matching map photo pixel convention
       };
     });
     var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -619,7 +619,7 @@
 
     function toScreen(p){
       var sx = pad + (p.x - miniBounds.minX) * scale;
-      var sy = h - (pad + (p.y - miniBounds.minY) * scale); // flip: north up
+      var sy = pad + (p.y - miniBounds.minY) * scale; // already y-down, so north still renders at the top
       return {x: sx, y: sy};
     }
 
