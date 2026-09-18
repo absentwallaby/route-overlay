@@ -257,7 +257,7 @@
   <div class="hint" style="margin-top:8px;">Pinch to zoom either view for precise tapping (double-tap to reset zoom). Taps near a printed control circle or triangle on the map snap to its center. Drag either marker to fine-tune before confirming.</div>
 
   <div class="row" style="margin-top:10px;">
-    <button id="addPointBtn" class="primary">Add matching point</button>
+    <button id="addPointBtn" class="primary">Add Matching Point</button>
     <button id="clearPointsBtn">Clear points</button>
   </div>
   <div class="row" id="confirmRow" style="display:none; margin-top:8px;">
@@ -1032,12 +1032,12 @@
     draggingPendingMini = false;
     draggingPendingMap = false;
     addPointBtn.classList.remove('on');
-    addPointBtn.textContent = 'Add matching point';
+    addPointBtn.textContent = 'Add Matching Point';
     addPointBtn.disabled = false;
     confirmRow.style.display = 'none';
     pairStatus.className = 'status';
     pairStatus.textContent = controlPoints.length
-      ? 'Tap "Add matching point" to add another, or fine-tune below.'
+      ? 'Tap "Add Matching Point" to add another, or fine-tune below.'
       : 'Tap a point on your route, then tap the same spot on the map photo.';
     drawMini();
     drawMap();
@@ -1072,7 +1072,7 @@
     controlPoints.push({ sx: pendingPair.mini.x, sy: pendingPair.mini.y, px: pendingPair.map.px, py: pendingPair.map.py });
     pendingPair = null;
     addPointBtn.disabled = false;
-    addPointBtn.textContent = 'Add matching point';
+    addPointBtn.textContent = 'Add Matching Point';
     confirmRow.style.display = 'none';
     computeTransform();
     renderPairsList();
