@@ -255,6 +255,7 @@
       <canvas id="mapCanvas"></canvas>
     </div>
   </div>
+  <div class="hint" style="margin-top:8px;">Pinch to zoom either view for precise tapping (double-tap to reset zoom). Taps near a printed control circle on the map snap to its center.</div>
 
   <div class="row" style="margin-top:10px;">
     <button id="addPointBtn" class="primary">Add matching point</button>
@@ -324,6 +325,14 @@
   var dragStart = null;
   var tuneStartDrag = null;
 
+  // pinch-zoom/pan view state per canvas (content-space -> canvas-pixel space)
+  var mapView = { scale: 1, ox: 0, oy: 0 };
+  var miniView = { scale: 1, ox: 0, oy: 0 };
+  var MIN_ZOOM = 1, MAX_ZOOM = 8;
+
+  // control circles detected on the map photo (natural image px): [{x, y, r}]
+  var controlCircles = [];
+
   // ---------- elements ----------
   var gpxInput = document.getElementById('gpxInput');
   var gpxStatus = document.getElementById('gpxStatus');
@@ -354,6 +363,65 @@
   var dxVal = document.getElementById('dxVal');
   var dyVal = document.getElementById('dyVal');
 
+  // ---------- pinch-zoom / pan ----------
+  function toContent(view, x, y){
+    return { x: (x - view.ox) / view.scale, y: (y - view.oy) / view.scale };
+  }
+  function clampZoom(s){ return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, s)); }
+
+  function makeZoomController(canvas, view, redraw){
+    var pointers = new Map();
+    var pinchStart = null;
+
+    function canvasPos(e){
+      var rect = canvas.getBoundingClientRect();
+      var scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+      return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+    }
+    function onDown(e){
+      pointers.set(e.pointerId, canvasPos(e));
+      if (pointers.size === 2) {
+        var pts = Array.from(pointers.values());
+        var dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        var mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+        pinchStart = { dist: dist || 1, mid: mid, scale: view.scale, ox: view.ox, oy: view.oy };
+      }
+    }
+    function onMove(e){
+      if (!pointers.has(e.pointerId)) return false;
+      pointers.set(e.pointerId, canvasPos(e));
+      if (pointers.size === 2 && pinchStart) {
+        var pts = Array.from(pointers.values());
+        var dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        var mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+        var newScale = clampZoom(pinchStart.scale * (dist / pinchStart.dist));
+        var contentX = (pinchStart.mid.x - pinchStart.ox) / pinchStart.scale;
+        var contentY = (pinchStart.mid.y - pinchStart.oy) / pinchStart.scale;
+        view.scale = newScale;
+        view.ox = mid.x - contentX * newScale;
+        view.oy = mid.y - contentY * newScale;
+        redraw();
+        return true;
+      }
+      return pointers.size >= 2;
+    }
+    function onUp(e){
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinchStart = null;
+    }
+    function reset(){ view.scale = 1; view.ox = 0; view.oy = 0; redraw(); }
+
+    return {
+      canvasPos: canvasPos, onDown: onDown, onMove: onMove, onUp: onUp,
+      isPinching: function(){ return pointers.size >= 2; }, reset: reset
+    };
+  }
+
+  var mapZoom = makeZoomController(mapCanvas, mapView, function(){ drawMap(); });
+  var miniZoom = makeZoomController(miniCanvas, miniView, function(){ drawMini(); });
+  mapCanvas.addEventListener('dblclick', function(){ mapZoom.reset(); });
+  miniCanvas.addEventListener('dblclick', function(){ miniZoom.reset(); });
+
   // ---------- GPX parsing ----------
   gpxInput.addEventListener('change', function(e){
     var file = e.target.files[0];
@@ -368,6 +436,7 @@
         }
         gpxPoints = pts;
         computeLocalProjection();
+        miniView.scale = 1; miniView.ox = 0; miniView.oy = 0;
         gpxStatus.textContent = 'Loaded ' + pts.length + ' points.';
         drawMini();
         maybeShowAlignCard();
@@ -487,10 +556,17 @@
       img = new Image();
       img.onload = function(){
         imgLoaded = true;
-        photoStatus.textContent = 'Loaded (' + img.naturalWidth + '\u00d7' + img.naturalHeight + ').';
+        controlCircles = [];
+        photoStatus.textContent = 'Loaded (' + img.naturalWidth + '\u00d7' + img.naturalHeight + '). Scanning for control circles\u2026';
         sizeMapCanvas();
         drawMap();
         maybeShowAlignCard();
+        setTimeout(function(){
+          controlCircles = detectControlCircles(img);
+          photoStatus.textContent = 'Loaded (' + img.naturalWidth + '\u00d7' + img.naturalHeight + ').' +
+            (controlCircles.length ? ' Found ' + controlCircles.length + ' control circle' + (controlCircles.length === 1 ? '' : 's') + ' to snap to.' : '');
+          drawMap();
+        }, 30);
       };
       img.onerror = function(){ photoStatus.textContent = 'Could not read that image.'; };
       img.src = ev.target.result;
@@ -504,6 +580,7 @@
     var h = Math.round(w * img.naturalHeight / img.naturalWidth);
     mapCanvas.width = w;
     mapCanvas.height = h;
+    mapView.scale = 1; mapView.ox = 0; mapView.oy = 0;
   }
 
   function maybeShowAlignCard(){
@@ -519,6 +596,9 @@
     if (!metersPoints) return;
     var w = miniCanvas.width, h = miniCanvas.height;
     miniCtx.clearRect(0,0,w,h);
+    miniCtx.save();
+    miniCtx.translate(miniView.ox, miniView.oy);
+    miniCtx.scale(miniView.scale, miniView.scale);
     var pad = 22;
     var spanX = Math.max(1, miniBounds.maxX - miniBounds.minX);
     var spanY = Math.max(1, miniBounds.maxY - miniBounds.minY);
@@ -566,6 +646,7 @@
     miniCanvas._toScreen = toScreen;
     miniCanvas._scale = scale;
     miniCanvas._pad = pad;
+    miniCtx.restore();
   }
 
   function circle(ctx, x, y, r){
@@ -576,11 +657,11 @@
   }
 
   miniCanvas.addEventListener('pointerdown', function(e){
-    if (!addMode || !metersPoints) return;
-    var rect = miniCanvas.getBoundingClientRect();
-    var scaleX = miniCanvas.width / rect.width, scaleY = miniCanvas.height / rect.height;
-    var cx = (e.clientX - rect.left) * scaleX;
-    var cy = (e.clientY - rect.top) * scaleY;
+    miniZoom.onDown(e);
+    if (!addMode || !metersPoints || miniZoom.isPinching()) return;
+    var pos = miniZoom.canvasPos(e);
+    var content = toContent(miniView, pos.x, pos.y);
+    var cx = content.x, cy = content.y;
     // find nearest track point on screen
     var best = null, bestD = Infinity;
     metersPoints.forEach(function(p){
@@ -600,16 +681,35 @@
     if (!imgLoaded) return;
     var w = mapCanvas.width, h = mapCanvas.height;
     mapCtx.clearRect(0,0,w,h);
+    mapCtx.save();
+    mapCtx.translate(mapView.ox, mapView.oy);
+    mapCtx.scale(mapView.scale, mapView.scale);
     mapCtx.drawImage(img, 0, 0, w, h);
 
-    // draw existing control points (image-space, scaled to canvas)
     var sc = w / img.naturalWidth;
+
+    if (addMode && controlCircles.length) {
+      mapCtx.save();
+      mapCtx.strokeStyle = getCss('--control-a');
+      mapCtx.setLineDash([4, 3]);
+      mapCtx.lineWidth = 1.5;
+      controlCircles.forEach(function(c){
+        mapCtx.beginPath();
+        mapCtx.arc(c.x*sc, c.y*sc, c.r*sc, 0, Math.PI*2);
+        mapCtx.stroke();
+      });
+      mapCtx.restore();
+    }
+
+    // draw existing control points (image-space, scaled to canvas)
     controlPoints.forEach(function(cp){
       mapCtx.fillStyle = getCss('--control-b');
       circle(mapCtx, cp.px*sc, cp.py*sc, 5);
     });
 
     if (xform) drawRouteOverlay(sc);
+
+    mapCtx.restore();
   }
 
   function drawRouteOverlay(sc){
@@ -682,6 +782,100 @@
     return { x: tx + xform.muT.x + tune.dx, y: ty + xform.muT.y + tune.dy };
   }
 
+  // ---------- control circle detection (snap taps to printed control circles) ----------
+  // Orienteering control circles are drawn as thin magenta/purple ring outlines.
+  // We mask purple-ish pixels, flood-fill connected blobs, then keep blobs whose
+  // pixels form a roughly constant-radius ring (i.e. a circle, not a line or digit).
+  function isControlPurple(r, g, b){
+    var max = Math.max(r, g, b), min = Math.min(r, g, b);
+    var delta = max - min;
+    if (max < 40 || delta < 20) return false;
+    var sat = delta / max;
+    if (sat < 0.25) return false;
+    var hue;
+    if (max === r) hue = 60 * (((g - b) / delta) % 6);
+    else if (max === g) hue = 60 * ((b - r) / delta + 2);
+    else hue = 60 * ((r - g) / delta + 4);
+    if (hue < 0) hue += 360;
+    return hue >= 265 && hue <= 335; // magenta/purple band
+  }
+
+  function detectControlCircles(image){
+    var maxDim = 900;
+    var scale = Math.min(1, maxDim / Math.max(image.naturalWidth, image.naturalHeight));
+    var w = Math.max(1, Math.round(image.naturalWidth * scale));
+    var h = Math.max(1, Math.round(image.naturalHeight * scale));
+    var off = document.createElement('canvas');
+    off.width = w; off.height = h;
+    var octx = off.getContext('2d');
+    octx.drawImage(image, 0, 0, w, h);
+    var data;
+    try { data = octx.getImageData(0, 0, w, h).data; } catch (e) { return []; }
+
+    var mask = new Uint8Array(w * h);
+    for (var i = 0, p = 0; i < mask.length; i++, p += 4) {
+      if (isControlPurple(data[p], data[p+1], data[p+2])) mask[i] = 1;
+    }
+
+    var visited = new Uint8Array(w * h);
+    var stack = new Int32Array(w * h);
+    var circles = [];
+
+    for (var idx = 0; idx < mask.length; idx++) {
+      if (!mask[idx] || visited[idx]) continue;
+      var sp = 0;
+      stack[sp++] = idx;
+      visited[idx] = 1;
+      var xs = [], ys = [];
+      var minX = w, maxX = 0, minY = h, maxY = 0;
+      while (sp > 0) {
+        var cur = stack[--sp];
+        var px = cur % w, py = (cur / w) | 0;
+        xs.push(px); ys.push(py);
+        if (px < minX) minX = px; if (px > maxX) maxX = px;
+        if (py < minY) minY = py; if (py > maxY) maxY = py;
+        if (px > 0 && !visited[cur-1] && mask[cur-1]) { visited[cur-1] = 1; stack[sp++] = cur-1; }
+        if (px < w-1 && !visited[cur+1] && mask[cur+1]) { visited[cur+1] = 1; stack[sp++] = cur+1; }
+        if (cur-w >= 0 && !visited[cur-w] && mask[cur-w]) { visited[cur-w] = 1; stack[sp++] = cur-w; }
+        if (cur+w < mask.length && !visited[cur+w] && mask[cur+w]) { visited[cur+w] = 1; stack[sp++] = cur+w; }
+      }
+      var count = xs.length;
+      if (count < 12) continue; // noise
+      var bw = maxX - minX + 1, bh = maxY - minY + 1;
+      if (bw < 10 || bh < 10) continue; // too small to be a control circle
+      if (bw > w*0.5 || bh > h*0.5) continue; // too big, probably not a single circle
+      var aspect = bw > bh ? bw/bh : bh/bw;
+      if (aspect > 1.4) continue; // not roughly circular bounding box
+
+      var sumX = 0, sumY = 0;
+      for (var k = 0; k < count; k++) { sumX += xs[k]; sumY += ys[k]; }
+      var ccx = sumX/count, ccy = sumY/count;
+      var sumR = 0, sumR2 = 0;
+      for (var m = 0; m < count; m++) {
+        var dx = xs[m]-ccx, dy = ys[m]-ccy;
+        var rr = Math.sqrt(dx*dx + dy*dy);
+        sumR += rr; sumR2 += rr*rr;
+      }
+      var meanR = sumR/count;
+      var stdR = Math.sqrt(Math.max(0, sumR2/count - meanR*meanR));
+      if (meanR < 4) continue;
+      if (stdR/meanR > 0.35) continue; // pixels aren't ring-shaped enough
+
+      circles.push({ x: ccx/scale, y: ccy/scale, r: meanR/scale });
+    }
+    return circles;
+  }
+
+  function snapToControlCircle(px, py){
+    var best = null, bestD = Infinity;
+    controlCircles.forEach(function(c){
+      var d = Math.hypot(c.x - px, c.y - py);
+      if (d < bestD) { bestD = d; best = c; }
+    });
+    if (best && bestD <= best.r * 2.2) return { x: best.x, y: best.y, snapped: true };
+    return { x: px, y: py, snapped: false };
+  }
+
   // ---------- add-point flow ----------
   addPointBtn.addEventListener('click', function(){
     addMode = !addMode;
@@ -696,11 +890,11 @@
   });
 
   mapCanvas.addEventListener('pointerdown', function(e){
-    if (!imgLoaded) return;
-    var rect = mapCanvas.getBoundingClientRect();
-    var scaleX = mapCanvas.width / rect.width, scaleY = mapCanvas.height / rect.height;
-    var cx = (e.clientX - rect.left) * scaleX;
-    var cy = (e.clientY - rect.top) * scaleY;
+    mapZoom.onDown(e);
+    if (!imgLoaded || mapZoom.isPinching()) { dragging = false; return; }
+    var pos = mapZoom.canvasPos(e);
+    var content = toContent(mapView, pos.x, pos.y);
+    var cx = content.x, cy = content.y;
 
     if (addMode) {
       if (!pendingMini) {
@@ -709,7 +903,8 @@
       }
       var sc = mapCanvas.width / img.naturalWidth;
       var px = cx / sc, py = cy / sc;
-      controlPoints.push({ sx: pendingMini.x, sy: pendingMini.y, px: px, py: py });
+      var snapped = snapToControlCircle(px, py);
+      controlPoints.push({ sx: pendingMini.x, sy: pendingMini.y, px: snapped.x, py: snapped.y });
       pendingMini = null;
       addMode = false;
       addPointBtn.classList.remove('on');
@@ -720,9 +915,10 @@
       drawMap();
       updateUiVisibility();
       pairStatus.className = 'status';
-      pairStatus.textContent = controlPoints.length < 2
-        ? 'Added. Add one more point to align the route.'
-        : 'Add another point for a better fit, or fine-tune below.';
+      pairStatus.textContent = (snapped.snapped ? 'Snapped to a control circle. ' : '') +
+        (controlPoints.length < 2
+          ? 'Added. Add one more point to align the route.'
+          : 'Add another point for a better fit, or fine-tune below.');
       return;
     }
 
@@ -735,19 +931,23 @@
   });
 
   window.addEventListener('pointermove', function(e){
+    var mapPinching = mapZoom.onMove(e);
+    var miniPinching = miniZoom.onMove(e);
+    if (mapPinching || miniPinching) return;
     if (!dragging) return;
     var rect = mapCanvas.getBoundingClientRect();
     var sc = mapCanvas.width / img.naturalWidth;
     var dxCanvas = (e.clientX - dragStart.x) * (mapCanvas.width/rect.width);
     var dyCanvas = (e.clientY - dragStart.y) * (mapCanvas.height/rect.height);
-    tune.dx = tuneStartDrag.dx + dxCanvas / sc;
-    tune.dy = tuneStartDrag.dy + dyCanvas / sc;
+    tune.dx = tuneStartDrag.dx + (dxCanvas / mapView.scale) / sc;
+    tune.dy = tuneStartDrag.dy + (dyCanvas / mapView.scale) / sc;
     clampSlider(dxSlider, tune.dx); clampSlider(dySlider, tune.dy);
     dxVal.textContent = Math.round(tune.dx);
     dyVal.textContent = Math.round(tune.dy);
     drawMap();
   });
-  window.addEventListener('pointerup', function(){ dragging = false; });
+  window.addEventListener('pointerup', function(e){ mapZoom.onUp(e); miniZoom.onUp(e); dragging = false; });
+  window.addEventListener('pointercancel', function(e){ mapZoom.onUp(e); miniZoom.onUp(e); dragging = false; });
 
   function clampSlider(slider, value){
     var min = parseFloat(slider.min), max = parseFloat(slider.max);
