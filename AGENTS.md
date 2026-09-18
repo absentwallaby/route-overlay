@@ -9,7 +9,7 @@ Route Overlay is a single-page, client-only web app (PWA) for orienteering. A us
 3. Picks 2+ matching point pairs (a point on the route vs. the same physical spot on the map photo) to compute a similarity transform (rotation + uniform scale + translation) that maps route coordinates onto the photo.
 4. Fine-tunes the alignment with sliders or by dragging the overlay directly, then exports a PNG of the map photo with the route drawn on top, at full photo resolution.
 
-Everything runs in the browser — no server, no backend, no network calls, no data upload. This is a deliberate privacy/simplicity feature; do not add a backend or external API calls unless the user explicitly asks for it.
+Everything runs in the browser — no server, no backend, no network calls, no data upload, other than the Ko-fi donate widget in the footer (loads `storage.ko-fi.com`'s script, explicitly requested by the site owner). This is otherwise a deliberate privacy/simplicity feature; do not add a backend or other external API calls unless the user explicitly asks for it.
 
 ## Structure
 
@@ -30,7 +30,7 @@ Everything runs in the browser — no server, no backend, no network calls, no d
 - Adding a matching point is a tap-then-confirm flow: tapping the route diagram then the map creates a draggable, unconfirmed `pendingPair` (drawn in the accent color); the user can drag either marker to fine-tune before pressing "Confirm point", which is the only point `controlPoints`/the alignment transform are updated. Keep this confirm step when changing the add-point UI.
 - `mapView`/`miniView` plus `makeZoomController` implement pinch-to-zoom/pan for the mini route diagram and map canvas during alignment (step 3). Any pointer math added to those canvases must go through `toContent()` to convert canvas-pixel taps into the same content-space coordinates used elsewhere (control points, route projection, etc.), otherwise taps will be misplaced when zoomed/panned. `sizeMapCanvas` only resets `mapView` when the canvas's pixel dimensions actually change, to avoid discarding zoom/pan on spurious `resize` events (e.g. mobile browser chrome show/hide).
 - If you touch `sw.js`, bump `CACHE_NAME` (e.g. `route-overlay-v4`) so returning users get the updated app shell instead of a stale cache.
-- The footer of `index.html` shows a semver version number (e.g. `v0.2.1`). Bump it with every change (patch for fixes, minor for features) and update `sw.js`'s `CACHE_NAME` alongside it. Never bump the major version to `1` without explicit user approval.
+- The footer of `index.html` shows a semver version number (e.g. `v0.3.0`). Bump it with every change (patch for fixes, minor for features) and update `sw.js`'s `CACHE_NAME` alongside it. Never bump the major version to `1` without explicit user approval.
 
 ## Hosting
 
