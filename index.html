@@ -285,9 +285,10 @@
     <input type="range" id="dySlider" min="-200" max="200" step="1" value="0">
     <span class="val" id="dyVal">0</span>
   </div>
-  <div class="hint" id="dragHint" style="display:none;">You can also drag the route directly on the map photo to nudge it. Use the sliders for rotation and scale.</div>
+  <div class="hint" id="dragHint" style="display:none;">Use the sliders to fine-tune the route. Direct dragging is disabled until enabled below.</div>
   <div class="row" id="resetRow" style="display:none; margin-top:6px;">
     <button id="resetTuneBtn">Reset fine-tune</button>
+    <button id="dragRouteBtn">Enable direct dragging</button>
   </div>
 </div>
 
@@ -305,7 +306,7 @@
     <script type='text/javascript' src='https://storage.ko-fi.com/cdn/widget/Widget_2.js'></script>
     <script type='text/javascript'>kofiwidget2.init('Support me on Ko-fi', '#72a4f2', 'B1I8277GQK');kofiwidget2.draw();</script>
   </div>
-  <div style="margin-top:6px;">v0.3.0</div>
+  <div style="margin-top:6px;">v0.3.1</div>
 </footer>
 
 <script>
@@ -318,6 +319,7 @@
   var miniBounds = null;     // {minX,maxX,minY,maxY}
   var img = new Image();
   var imgLoaded = false;
+  var photoFilename = 'image';
 
   var controlPoints = []; // {sx, sy (meters), px, py (natural image px)}
 
@@ -339,6 +341,7 @@
   var dragging = false;
   var dragStart = null;
   var tuneStartDrag = null;
+  var routeDragEnabled = false;
 
   // pinch-zoom/pan view state per canvas (content-space -> canvas-pixel space)
   var mapView = { scale: 1, ox: 0, oy: 0 };
@@ -370,6 +373,7 @@
   var dragHint = document.getElementById('dragHint');
   var resetRow = document.getElementById('resetRow');
   var resetTuneBtn = document.getElementById('resetTuneBtn');
+  var dragRouteBtn = document.getElementById('dragRouteBtn');
   var exportBtn = document.getElementById('exportBtn');
 
   var rotSlider = document.getElementById('rotSlider');
@@ -569,6 +573,10 @@
   photoInput.addEventListener('change', function(e){
     var file = e.target.files[0];
     if (!file) return;
+    photoFilename = file.name || 'image';
+    routeDragEnabled = false;
+    dragRouteBtn.classList.remove('on');
+    dragRouteBtn.textContent = 'Enable direct dragging';
     var reader = new FileReader();
     reader.onload = function(ev){
       img = new Image();
@@ -1064,6 +1072,7 @@
     controlPoints.push({ sx: pendingPair.mini.x, sy: pendingPair.mini.y, px: pendingPair.map.px, py: pendingPair.map.py });
     pendingPair = null;
     addPointBtn.disabled = false;
+    addPointBtn.textContent = 'Add matching point';
     confirmRow.style.display = 'none';
     computeTransform();
     renderPairsList();
@@ -1105,7 +1114,7 @@
     }
 
     // direct drag of overlay when not adding/adjusting a match point
-    if (xform && !pendingPair) {
+    if (routeDragEnabled && xform && !pendingPair) {
       dragging = true;
       dragStart = {x: e.clientX, y: e.clientY};
       tuneStartDrag = {dx: tune.dx, dy: tune.dy};
@@ -1223,6 +1232,15 @@
     onTuneChange();
   });
 
+  dragRouteBtn.addEventListener('click', function(){
+    routeDragEnabled = !routeDragEnabled;
+    dragRouteBtn.classList.toggle('on', routeDragEnabled);
+    dragRouteBtn.textContent = routeDragEnabled ? 'Disable direct dragging' : 'Enable direct dragging';
+    dragHint.textContent = routeDragEnabled
+      ? 'Direct dragging is enabled. Use the sliders for rotation and scale.'
+      : 'Use the sliders to fine-tune the route. Direct dragging is disabled until enabled below.';
+  });
+
   // ---------- export ----------
   exportBtn.addEventListener('click', function(){
     var w = img.naturalWidth, h = img.naturalHeight;
@@ -1253,7 +1271,9 @@
     out.toBlob(function(blob){
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'route-overlay.png';
+      var dot = photoFilename.lastIndexOf('.');
+      var baseName = dot > 0 ? photoFilename.slice(0, dot) : photoFilename;
+      a.download = baseName + '-route.png';
       document.body.appendChild(a);
       a.click();
       a.remove();
