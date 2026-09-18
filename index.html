@@ -134,11 +134,11 @@
   .status.active { color: var(--accent); font-weight: 600; }
   .canvases {
     display: flex;
-    gap: 10px;
-    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
   }
   .mini-wrap {
-    flex: 0 0 110px;
+    width: 100%;
   }
   .mini-wrap .label {
     font-size: 11px;
@@ -148,15 +148,14 @@
   }
   #miniCanvas {
     width: 100%;
-    aspect-ratio: 1;
+    aspect-ratio: 4 / 3;
     background: var(--bg);
     border: 1px solid var(--line);
     border-radius: 6px;
     touch-action: none;
   }
   .map-wrap {
-    flex: 1;
-    min-width: 0;
+    width: 100%;
   }
   #mapCanvas {
     width: 100%;
@@ -249,17 +248,21 @@
   <div class="canvases">
     <div class="mini-wrap">
       <div class="label">Your route</div>
-      <canvas id="miniCanvas" width="300" height="300"></canvas>
+      <canvas id="miniCanvas" width="640" height="480"></canvas>
     </div>
     <div class="map-wrap">
       <canvas id="mapCanvas"></canvas>
     </div>
   </div>
-  <div class="hint" style="margin-top:8px;">Pinch to zoom either view for precise tapping (double-tap to reset zoom). Taps near a printed control circle on the map snap to its center.</div>
+  <div class="hint" style="margin-top:8px;">Pinch to zoom either view for precise tapping (double-tap to reset zoom). Taps near a printed control circle or triangle on the map snap to its center. Drag either marker to fine-tune before confirming.</div>
 
   <div class="row" style="margin-top:10px;">
     <button id="addPointBtn" class="primary">Add matching point</button>
     <button id="clearPointsBtn">Clear points</button>
+  </div>
+  <div class="row" id="confirmRow" style="display:none; margin-top:8px;">
+    <button id="confirmPointBtn" class="primary">Confirm point</button>
+    <button id="cancelPointBtn">Cancel</button>
   </div>
   <div class="status" id="pairStatus">Tap a point on your route, then tap the same spot on the map photo. Add at least 2 — 3 or 4 spread apart works best.</div>
 
@@ -310,7 +313,12 @@
   var imgLoaded = false;
 
   var controlPoints = []; // {sx, sy (meters), px, py (natural image px)}
-  var pendingMini = null; // {x, y} meters, chosen but not yet paired
+
+  // a match point in progress: both taps made, draggable, not yet part of controlPoints
+  var pendingPair = null; // { mini: {x,y} meters|null, map: {px,py,snapped}|null }
+  var draggingPendingMini = false;
+  var draggingPendingMap = false;
+  var PICK_PX = 22; // content-space px radius for grabbing a pending marker to drag it
 
   var addMode = false;
 
@@ -330,8 +338,8 @@
   var miniView = { scale: 1, ox: 0, oy: 0 };
   var MIN_ZOOM = 1, MAX_ZOOM = 8;
 
-  // control circles detected on the map photo (natural image px): [{x, y, r}]
-  var controlCircles = [];
+  // control marks detected on the map photo (natural image px)
+  var controlMarks = { circles: [], triangles: [] };
 
   // ---------- elements ----------
   var gpxInput = document.getElementById('gpxInput');
@@ -346,6 +354,9 @@
   var mapCtx = mapCanvas.getContext('2d');
   var addPointBtn = document.getElementById('addPointBtn');
   var clearPointsBtn = document.getElementById('clearPointsBtn');
+  var confirmRow = document.getElementById('confirmRow');
+  var confirmPointBtn = document.getElementById('confirmPointBtn');
+  var cancelPointBtn = document.getElementById('cancelPointBtn');
   var pairStatus = document.getElementById('pairStatus');
   var pairsList = document.getElementById('pairsList');
   var fineTune = document.getElementById('fineTune');
@@ -556,15 +567,16 @@
       img = new Image();
       img.onload = function(){
         imgLoaded = true;
-        controlCircles = [];
-        photoStatus.textContent = 'Loaded (' + img.naturalWidth + '\u00d7' + img.naturalHeight + '). Scanning for control circles\u2026';
+        controlMarks = { circles: [], triangles: [] };
+        photoStatus.textContent = 'Loaded (' + img.naturalWidth + '\u00d7' + img.naturalHeight + '). Scanning for control circles/triangle\u2026';
         sizeMapCanvas();
         drawMap();
         maybeShowAlignCard();
         setTimeout(function(){
-          controlCircles = detectControlCircles(img);
+          controlMarks = detectControlMarks(img);
+          var total = controlMarks.circles.length + controlMarks.triangles.length;
           photoStatus.textContent = 'Loaded (' + img.naturalWidth + '\u00d7' + img.naturalHeight + ').' +
-            (controlCircles.length ? ' Found ' + controlCircles.length + ' control circle' + (controlCircles.length === 1 ? '' : 's') + ' to snap to.' : '');
+            (total ? ' Found ' + total + ' control mark' + (total === 1 ? '' : 's') + ' to snap to.' : '');
           drawMap();
         }, 30);
       };
@@ -578,6 +590,7 @@
     var maxW = 900;
     var w = Math.min(img.naturalWidth, maxW);
     var h = Math.round(w * img.naturalHeight / img.naturalWidth);
+    if (mapCanvas.width === w && mapCanvas.height === h) return; // unchanged: keep current zoom/pan
     mapCanvas.width = w;
     mapCanvas.height = h;
     mapView.scale = 1; mapView.ox = 0; mapView.oy = 0;
@@ -633,14 +646,16 @@
       circle(miniCtx, s.x, s.y, 5);
     });
 
-    // pending selection
-    if (pendingMini) {
-      var s = toScreen(pendingMini);
+    // pending (unconfirmed) match point - draggable until confirmed
+    if (pendingPair && pendingPair.mini) {
+      var sPend = toScreen(pendingPair.mini);
       miniCtx.strokeStyle = getCss('--control-a');
-      miniCtx.lineWidth = 2;
+      miniCtx.lineWidth = 2.5;
       miniCtx.beginPath();
-      miniCtx.arc(s.x, s.y, 7, 0, Math.PI*2);
+      miniCtx.arc(sPend.x, sPend.y, 8, 0, Math.PI*2);
       miniCtx.stroke();
+      miniCtx.fillStyle = getCss('--control-a');
+      circle(miniCtx, sPend.x, sPend.y, 3);
     }
 
     miniCanvas._toScreen = toScreen;
@@ -658,21 +673,29 @@
 
   miniCanvas.addEventListener('pointerdown', function(e){
     miniZoom.onDown(e);
-    if (!addMode || !metersPoints || miniZoom.isPinching()) return;
+    if (!metersPoints || miniZoom.isPinching()) return;
     var pos = miniZoom.canvasPos(e);
     var content = toContent(miniView, pos.x, pos.y);
     var cx = content.x, cy = content.y;
+
+    if (pendingPair && pendingPair.mini) {
+      var s = miniCanvas._toScreen(pendingPair.mini);
+      if (Math.hypot(s.x-cx, s.y-cy) <= PICK_PX) { draggingPendingMini = true; return; }
+    }
+    if (!addMode || !pendingPair || pendingPair.mini) return;
+
     // find nearest track point on screen
     var best = null, bestD = Infinity;
     metersPoints.forEach(function(p){
-      var s = miniCanvas._toScreen(p);
-      var d = (s.x-cx)*(s.x-cx) + (s.y-cy)*(s.y-cy);
+      var s2 = miniCanvas._toScreen(p);
+      var d = (s2.x-cx)*(s2.x-cx) + (s2.y-cy)*(s2.y-cy);
       if (d < bestD) { bestD = d; best = p; }
     });
     if (best) {
-      pendingMini = best;
+      pendingPair.mini = best;
       drawMini();
-      pairStatus.textContent = 'Now tap the matching spot on the map photo.';
+      if (pendingComplete()) onPendingPairComplete();
+      else pairStatus.textContent = 'Now tap the matching spot on the map photo.';
     }
   });
 
@@ -688,14 +711,19 @@
 
     var sc = w / img.naturalWidth;
 
-    if (addMode && controlCircles.length) {
+    if (pendingPair && (controlMarks.circles.length || controlMarks.triangles.length)) {
       mapCtx.save();
       mapCtx.strokeStyle = getCss('--control-a');
       mapCtx.setLineDash([4, 3]);
       mapCtx.lineWidth = 1.5;
-      controlCircles.forEach(function(c){
+      controlMarks.circles.forEach(function(c){
         mapCtx.beginPath();
         mapCtx.arc(c.x*sc, c.y*sc, c.r*sc, 0, Math.PI*2);
+        mapCtx.stroke();
+      });
+      controlMarks.triangles.forEach(function(t){
+        mapCtx.beginPath();
+        mapCtx.arc(t.x*sc, t.y*sc, t.r*sc, 0, Math.PI*2);
         mapCtx.stroke();
       });
       mapCtx.restore();
@@ -706,6 +734,17 @@
       mapCtx.fillStyle = getCss('--control-b');
       circle(mapCtx, cp.px*sc, cp.py*sc, 5);
     });
+
+    // pending (unconfirmed) match point - draggable until confirmed
+    if (pendingPair && pendingPair.map) {
+      mapCtx.strokeStyle = getCss('--control-a');
+      mapCtx.lineWidth = 2.5;
+      mapCtx.beginPath();
+      mapCtx.arc(pendingPair.map.px*sc, pendingPair.map.py*sc, 9, 0, Math.PI*2);
+      mapCtx.stroke();
+      mapCtx.fillStyle = getCss('--control-a');
+      circle(mapCtx, pendingPair.map.px*sc, pendingPair.map.py*sc, 3);
+    }
 
     if (xform) drawRouteOverlay(sc);
 
@@ -782,26 +821,30 @@
     return { x: tx + xform.muT.x + tune.dx, y: ty + xform.muT.y + tune.dy };
   }
 
-  // ---------- control circle detection (snap taps to printed control circles) ----------
-  // Orienteering control circles are drawn as thin magenta/purple ring outlines.
-  // We mask purple-ish pixels, flood-fill connected blobs, then keep blobs whose
-  // pixels form a roughly constant-radius ring (i.e. a circle, not a line or digit).
-  function isControlPurple(r, g, b){
+  // ---------- control mark detection (snap taps to printed control circles/triangle) ----------
+  // Orienteering control circles and the start triangle are drawn as thin magenta/maroon/purple
+  // ring or triangle outlines, often physically touching the connecting course lines (which are
+  // the same colour). A simple connected-blob approach fails once lines merge into circles, so
+  // circles are found with a Hough-style circular vote (robust to touching lines); the triangle
+  // (usually drawn apart from the course lines) is found via a separate blob/shape pass.
+  function isControlColor(r, g, b){
     var max = Math.max(r, g, b), min = Math.min(r, g, b);
     var delta = max - min;
-    if (max < 40 || delta < 20) return false;
+    if (max < 25 || delta < 12) return false;
+    if (g > r || g > b + 6) return false; // green must not dominate - rules out brown contours/green
     var sat = delta / max;
-    if (sat < 0.25) return false;
-    var hue;
-    if (max === r) hue = 60 * (((g - b) / delta) % 6);
-    else if (max === g) hue = 60 * ((b - r) / delta + 2);
-    else hue = 60 * ((r - g) / delta + 4);
-    if (hue < 0) hue += 360;
-    return hue >= 265 && hue <= 335; // magenta/purple band
+    if (sat < 0.15) return false;
+    if (b < r * 0.12) return false; // pure red/orange has ~no blue; purple/maroon retains some
+    return true;
   }
 
-  function detectControlCircles(image){
-    var maxDim = 900;
+  function median(arr){
+    var s = arr.slice().sort(function(a,b){ return a-b; });
+    return s[Math.floor(s.length/2)];
+  }
+
+  function detectControlMarks(image){
+    var maxDim = 700;
     var scale = Math.min(1, maxDim / Math.max(image.naturalWidth, image.naturalHeight));
     var w = Math.max(1, Math.round(image.naturalWidth * scale));
     var h = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -810,16 +853,97 @@
     var octx = off.getContext('2d');
     octx.drawImage(image, 0, 0, w, h);
     var data;
-    try { data = octx.getImageData(0, 0, w, h).data; } catch (e) { return []; }
+    try { data = octx.getImageData(0, 0, w, h).data; } catch (e) { return { circles: [], triangles: [] }; }
 
     var mask = new Uint8Array(w * h);
+    var maskCount = 0;
     for (var i = 0, p = 0; i < mask.length; i++, p += 4) {
-      if (isControlPurple(data[p], data[p+1], data[p+2])) mask[i] = 1;
+      if (isControlColor(data[p], data[p+1], data[p+2])) { mask[i] = 1; maskCount++; }
+    }
+    if (!maskCount) return { circles: [], triangles: [] };
+
+    var circles = detectCirclesByHough(mask, w, h, maskCount);
+    var medianR = circles.length ? median(circles.map(function(c){ return c.r; })) : Math.min(w,h) * 0.03;
+    var triangles = detectTriangleBlobs(mask, w, h, medianR);
+
+    return {
+      circles: circles.map(function(c){ return { x: c.x/scale, y: c.y/scale, r: c.r/scale }; }),
+      triangles: triangles.map(function(t){ return { x: t.x/scale, y: t.y/scale, r: t.r/scale }; })
+    };
+  }
+
+  // Circular Hough transform: each masked pixel votes for every possible center at a given
+  // radius; true circle centers accumulate many overlapping votes regardless of what else
+  // (course lines, numbers) the ring touches.
+  function detectCirclesByHough(mask, w, h, maskCount){
+    var maskX = new Int32Array(maskCount), maskY = new Int32Array(maskCount);
+    for (var idx = 0, mi = 0; idx < mask.length; idx++) {
+      if (mask[idx]) { maskX[mi] = idx % w; maskY[mi] = (idx / w) | 0; mi++; }
+    }
+    var maxVotePoints = 6000;
+    var stride = Math.max(1, Math.floor(maskCount / maxVotePoints));
+
+    var rMin = Math.max(6, Math.round(Math.min(w,h) * 0.015));
+    var rMax = Math.max(rMin + 10, Math.round(Math.min(w,h) * 0.07));
+    var rStep = Math.max(1, Math.round((rMax - rMin) / 14));
+    var angleSteps = 24;
+    var cosTab = [], sinTab = [];
+    for (var a = 0; a < angleSteps; a++) {
+      var ang = a * 2 * Math.PI / angleSteps;
+      cosTab.push(Math.cos(ang)); sinTab.push(Math.sin(ang));
     }
 
+    var acc = new Uint16Array(w * h);
+    var candidates = [];
+    var voteThresh = angleSteps * 0.42;
+
+    for (var r = rMin; r <= rMax; r += rStep) {
+      acc.fill(0);
+      for (var mp = 0; mp < maskCount; mp += stride) {
+        var mx = maskX[mp], my = maskY[mp];
+        for (var a2 = 0; a2 < angleSteps; a2++) {
+          var cx = (mx + r*cosTab[a2]) | 0, cy = (my + r*sinTab[a2]) | 0;
+          if (cx < 0 || cx >= w || cy < 0 || cy >= h) continue;
+          acc[cy*w + cx]++;
+        }
+      }
+      for (var yy = 1; yy < h-1; yy++) {
+        for (var xx = 1; xx < w-1; xx++) {
+          var v = acc[yy*w + xx];
+          if (v < voteThresh) continue;
+          var isMax = true;
+          for (var ny = -2; ny <= 2 && isMax; ny++) {
+            for (var nx = -2; nx <= 2; nx++) {
+              if (nx === 0 && ny === 0) continue;
+              var nyy = yy+ny, nxx = xx+nx;
+              if (nyy < 0 || nyy >= h || nxx < 0 || nxx >= w) continue;
+              if (acc[nyy*w + nxx] > v) { isMax = false; break; }
+            }
+          }
+          if (isMax) candidates.push({ x: xx, y: yy, r: r, score: v });
+        }
+      }
+    }
+
+    candidates.sort(function(a,b){ return b.score - a.score; });
+    var circles = [];
+    candidates.forEach(function(c){
+      for (var k = 0; k < circles.length; k++) {
+        if (Math.hypot(circles[k].x-c.x, circles[k].y-c.y) < Math.max(circles[k].r, c.r) * 0.8) return;
+      }
+      circles.push(c);
+    });
+    return circles;
+  }
+
+  // Flood-fill blobs of control-colored pixels, kept only if isolated (not part of a huge
+  // connected course-line network) and shaped like a triangle (higher radius variance than a
+  // circle, roughly square bounding box, size similar to the detected circles).
+  function detectTriangleBlobs(mask, w, h, refR){
     var visited = new Uint8Array(w * h);
     var stack = new Int32Array(w * h);
-    var circles = [];
+    var triangles = [];
+    var minSize = Math.max(8, refR * 1.0), maxSize = Math.max(minSize + 4, refR * 4.5);
 
     for (var idx = 0; idx < mask.length; idx++) {
       if (!mask[idx] || visited[idx]) continue;
@@ -828,24 +952,26 @@
       visited[idx] = 1;
       var xs = [], ys = [];
       var minX = w, maxX = 0, minY = h, maxY = 0;
+      var tooBig = false;
       while (sp > 0) {
         var cur = stack[--sp];
         var px = cur % w, py = (cur / w) | 0;
         xs.push(px); ys.push(py);
         if (px < minX) minX = px; if (px > maxX) maxX = px;
         if (py < minY) minY = py; if (py > maxY) maxY = py;
+        if (xs.length > 20000) { tooBig = true; break; }
         if (px > 0 && !visited[cur-1] && mask[cur-1]) { visited[cur-1] = 1; stack[sp++] = cur-1; }
         if (px < w-1 && !visited[cur+1] && mask[cur+1]) { visited[cur+1] = 1; stack[sp++] = cur+1; }
         if (cur-w >= 0 && !visited[cur-w] && mask[cur-w]) { visited[cur-w] = 1; stack[sp++] = cur-w; }
         if (cur+w < mask.length && !visited[cur+w] && mask[cur+w]) { visited[cur+w] = 1; stack[sp++] = cur+w; }
       }
+      if (tooBig) continue; // part of the connected course-line network, not a standalone symbol
       var count = xs.length;
-      if (count < 12) continue; // noise
+      if (count < 10) continue;
       var bw = maxX - minX + 1, bh = maxY - minY + 1;
-      if (bw < 10 || bh < 10) continue; // too small to be a control circle
-      if (bw > w*0.5 || bh > h*0.5) continue; // too big, probably not a single circle
+      if (bw < minSize || bh < minSize || bw > maxSize || bh > maxSize) continue;
       var aspect = bw > bh ? bw/bh : bh/bw;
-      if (aspect > 1.4) continue; // not roughly circular bounding box
+      if (aspect > 1.4) continue;
 
       var sumX = 0, sumY = 0;
       for (var k = 0; k < count; k++) { sumX += xs[k]; sumY += ys[k]; }
@@ -858,36 +984,92 @@
       }
       var meanR = sumR/count;
       var stdR = Math.sqrt(Math.max(0, sumR2/count - meanR*meanR));
-      if (meanR < 4) continue;
-      if (stdR/meanR > 0.35) continue; // pixels aren't ring-shaped enough
+      var ratio = meanR > 0 ? stdR/meanR : 0;
+      if (ratio < 0.32 || ratio > 0.85) continue; // circles are more uniform, lines/text more erratic
 
-      circles.push({ x: ccx/scale, y: ccy/scale, r: meanR/scale });
+      triangles.push({ x: ccx, y: ccy, r: meanR });
     }
-    return circles;
+    return triangles;
   }
 
-  function snapToControlCircle(px, py){
+  function snapToControlMark(px, py){
     var best = null, bestD = Infinity;
-    controlCircles.forEach(function(c){
+    controlMarks.circles.forEach(function(c){
       var d = Math.hypot(c.x - px, c.y - py);
       if (d < bestD) { bestD = d; best = c; }
+    });
+    controlMarks.triangles.forEach(function(t){
+      var d = Math.hypot(t.x - px, t.y - py);
+      if (d < bestD) { bestD = d; best = t; }
     });
     if (best && bestD <= best.r * 2.2) return { x: best.x, y: best.y, snapped: true };
     return { x: px, y: py, snapped: false };
   }
 
   // ---------- add-point flow ----------
-  addPointBtn.addEventListener('click', function(){
-    addMode = !addMode;
-    addPointBtn.classList.toggle('on', addMode);
-    addPointBtn.textContent = addMode ? 'Cancel' : 'Add matching point';
-    pendingMini = null;
-    pairStatus.className = 'status' + (addMode ? ' active' : '');
-    pairStatus.textContent = addMode
-      ? 'Tap a point on your route, then tap the same spot on the map photo.'
-      : 'Tap "Add matching point" to add another, or fine-tune below.';
+  function pendingComplete(){
+    return !!(pendingPair && pendingPair.mini && pendingPair.map);
+  }
+
+  function cancelPendingPair(){
+    pendingPair = null;
+    addMode = false;
+    draggingPendingMini = false;
+    draggingPendingMap = false;
+    addPointBtn.classList.remove('on');
+    addPointBtn.textContent = 'Add matching point';
+    addPointBtn.disabled = false;
+    confirmRow.style.display = 'none';
+    pairStatus.className = 'status';
+    pairStatus.textContent = controlPoints.length
+      ? 'Tap "Add matching point" to add another, or fine-tune below.'
+      : 'Tap a point on your route, then tap the same spot on the map photo.';
     drawMini();
+    drawMap();
+  }
+
+  function onPendingPairComplete(){
+    addMode = false;
+    addPointBtn.classList.remove('on');
+    addPointBtn.disabled = true;
+    confirmRow.style.display = 'flex';
+    pairStatus.className = 'status';
+    pairStatus.textContent = (pendingPair.map.snapped ? 'Snapped to a control mark. ' : '') +
+      'Drag either marker to fine-tune, then confirm.';
+    drawMini();
+    drawMap();
+  }
+
+  addPointBtn.addEventListener('click', function(){
+    if (addMode || pendingPair) { cancelPendingPair(); return; }
+    addMode = true;
+    pendingPair = { mini: null, map: null };
+    addPointBtn.classList.add('on');
+    addPointBtn.textContent = 'Cancel';
+    pairStatus.className = 'status active';
+    pairStatus.textContent = 'Tap a point on your route, then tap the same spot on the map photo.';
+    drawMini();
+    drawMap();
   });
+
+  confirmPointBtn.addEventListener('click', function(){
+    if (!pendingComplete()) return;
+    controlPoints.push({ sx: pendingPair.mini.x, sy: pendingPair.mini.y, px: pendingPair.map.px, py: pendingPair.map.py });
+    pendingPair = null;
+    addPointBtn.disabled = false;
+    confirmRow.style.display = 'none';
+    computeTransform();
+    renderPairsList();
+    drawMini();
+    drawMap();
+    updateUiVisibility();
+    pairStatus.className = 'status';
+    pairStatus.textContent = controlPoints.length < 2
+      ? 'Added. Add one more point to align the route.'
+      : 'Add another point for a better fit, or fine-tune below.';
+  });
+
+  cancelPointBtn.addEventListener('click', function(){ cancelPendingPair(); });
 
   mapCanvas.addEventListener('pointerdown', function(e){
     mapZoom.onDown(e);
@@ -895,35 +1077,28 @@
     var pos = mapZoom.canvasPos(e);
     var content = toContent(mapView, pos.x, pos.y);
     var cx = content.x, cy = content.y;
+    var sc = mapCanvas.width / img.naturalWidth;
 
-    if (addMode) {
-      if (!pendingMini) {
-        pairStatus.textContent = 'Tap a point on your route first (left square).';
-        return;
-      }
-      var sc = mapCanvas.width / img.naturalWidth;
+    if (pendingPair && pendingPair.map) {
+      var mx = pendingPair.map.px*sc, my = pendingPair.map.py*sc;
+      if (Math.hypot(mx-cx, my-cy) <= PICK_PX) { draggingPendingMap = true; return; }
+    }
+
+    if (addMode && pendingPair && pendingPair.mini && !pendingPair.map) {
       var px = cx / sc, py = cy / sc;
-      var snapped = snapToControlCircle(px, py);
-      controlPoints.push({ sx: pendingMini.x, sy: pendingMini.y, px: snapped.x, py: snapped.y });
-      pendingMini = null;
-      addMode = false;
-      addPointBtn.classList.remove('on');
-      addPointBtn.textContent = 'Add matching point';
-      computeTransform();
-      renderPairsList();
-      drawMini();
+      var snapped = snapToControlMark(px, py);
+      pendingPair.map = { px: snapped.x, py: snapped.y, snapped: snapped.snapped };
       drawMap();
-      updateUiVisibility();
-      pairStatus.className = 'status';
-      pairStatus.textContent = (snapped.snapped ? 'Snapped to a control circle. ' : '') +
-        (controlPoints.length < 2
-          ? 'Added. Add one more point to align the route.'
-          : 'Add another point for a better fit, or fine-tune below.');
+      onPendingPairComplete();
+      return;
+    }
+    if (addMode && pendingPair && !pendingPair.mini) {
+      pairStatus.textContent = 'Tap a point on your route first (top box).';
       return;
     }
 
-    // direct drag of overlay when not adding points
-    if (xform) {
+    // direct drag of overlay when not adding/adjusting a match point
+    if (xform && !pendingPair) {
       dragging = true;
       dragStart = {x: e.clientX, y: e.clientY};
       tuneStartDrag = {dx: tune.dx, dy: tune.dy};
@@ -934,6 +1109,28 @@
     var mapPinching = mapZoom.onMove(e);
     var miniPinching = miniZoom.onMove(e);
     if (mapPinching || miniPinching) return;
+
+    if (draggingPendingMini) {
+      var posM = miniZoom.canvasPos(e);
+      var cM = toContent(miniView, posM.x, posM.y);
+      var best = null, bestD = Infinity;
+      metersPoints.forEach(function(p){
+        var s = miniCanvas._toScreen(p);
+        var d = (s.x-cM.x)*(s.x-cM.x) + (s.y-cM.y)*(s.y-cM.y);
+        if (d < bestD) { bestD = d; best = p; }
+      });
+      if (best) { pendingPair.mini = best; drawMini(); }
+      return;
+    }
+    if (draggingPendingMap) {
+      var posP = mapZoom.canvasPos(e);
+      var cP = toContent(mapView, posP.x, posP.y);
+      var sc2 = mapCanvas.width / img.naturalWidth;
+      pendingPair.map = { px: cP.x/sc2, py: cP.y/sc2, snapped: false };
+      drawMap();
+      return;
+    }
+
     if (!dragging) return;
     var rect = mapCanvas.getBoundingClientRect();
     var sc = mapCanvas.width / img.naturalWidth;
@@ -946,8 +1143,14 @@
     dyVal.textContent = Math.round(tune.dy);
     drawMap();
   });
-  window.addEventListener('pointerup', function(e){ mapZoom.onUp(e); miniZoom.onUp(e); dragging = false; });
-  window.addEventListener('pointercancel', function(e){ mapZoom.onUp(e); miniZoom.onUp(e); dragging = false; });
+  window.addEventListener('pointerup', function(e){
+    mapZoom.onUp(e); miniZoom.onUp(e);
+    dragging = false; draggingPendingMini = false; draggingPendingMap = false;
+  });
+  window.addEventListener('pointercancel', function(e){
+    mapZoom.onUp(e); miniZoom.onUp(e);
+    dragging = false; draggingPendingMini = false; draggingPendingMap = false;
+  });
 
   function clampSlider(slider, value){
     var min = parseFloat(slider.min), max = parseFloat(slider.max);
@@ -977,13 +1180,10 @@
 
   clearPointsBtn.addEventListener('click', function(){
     controlPoints = [];
-    pendingMini = null;
     computeTransform();
     renderPairsList();
-    drawMini(); drawMap();
     updateUiVisibility();
-    pairStatus.className = 'status';
-    pairStatus.textContent = 'Tap a point on your route, then tap the same spot on the map photo.';
+    cancelPendingPair();
   });
 
   function updateUiVisibility(){
