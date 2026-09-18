@@ -1,5 +1,5 @@
 // Route Overlay service worker: caches the app shell for offline use.
-const CACHE_NAME = 'route-overlay-v4';
+const CACHE_NAME = 'route-overlay-v5';
 const APP_SHELL = [
   './',
   './index.html',
