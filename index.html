@@ -377,7 +377,7 @@
     <script type='text/javascript' src='https://storage.ko-fi.com/cdn/widget/Widget_2.js'></script>
     <script type='text/javascript'>kofiwidget2.init('Support me on Ko-fi', '#72a4f2', 'B1I8277GQK');kofiwidget2.draw();</script>
   </div>
-  <div style="margin-top:6px;">v0.4.2</div>
+  <div style="margin-top:6px;">v0.4.3</div>
 </footer>
 
 <script>
@@ -995,7 +995,7 @@
 
     var acc = new Uint16Array(w * h);
     var candidates = [];
-    var voteThresh = angleSteps * 0.42;
+    var voteThresh = angleSteps * 0.55;
 
     for (var r = rMin; r <= rMax; r += rStep) {
       acc.fill(0);
@@ -1029,11 +1029,35 @@
     var circles = [];
     candidates.forEach(function(c){
       for (var k = 0; k < circles.length; k++) {
-        if (Math.hypot(circles[k].x-c.x, circles[k].y-c.y) < Math.max(circles[k].r, c.r) * 0.8) return;
+        if (Math.hypot(circles[k].x-c.x, circles[k].y-c.y) < Math.max(circles[k].r, c.r) * 0.9) return;
       }
+      // reject candidates whose circumference isn't mostly present in the mask - straight/curving
+      // course lines and crossings can accumulate enough Hough votes to pass voteThresh but don't
+      // actually trace a full ring, unlike a genuine printed control circle.
+      if (ringCoverage(mask, w, h, c.x, c.y, c.r) < 0.6) return;
       circles.push(c);
     });
     return circles;
+  }
+
+  // Fraction of a circle's circumference (sampled at `samples` angles, with a small radial
+  // tolerance band) that is actually present in the mask.
+  function ringCoverage(mask, w, h, cx, cy, r){
+    var samples = 32;
+    var band = Math.max(1, r * 0.12);
+    var hits = 0;
+    for (var s = 0; s < samples; s++) {
+      var ang = s * 2 * Math.PI / samples;
+      var found = false;
+      for (var dr = -band; dr <= band; dr += band) {
+        var px = Math.round(cx + (r + dr) * Math.cos(ang));
+        var py = Math.round(cy + (r + dr) * Math.sin(ang));
+        if (px < 0 || px >= w || py < 0 || py >= h) continue;
+        if (mask[py*w + px]) { found = true; break; }
+      }
+      if (found) hits++;
+    }
+    return hits / samples;
   }
 
   // Flood-fill blobs of control-colored pixels, kept only if isolated (not part of a huge
