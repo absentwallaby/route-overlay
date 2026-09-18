@@ -377,7 +377,7 @@
     <script type='text/javascript' src='https://storage.ko-fi.com/cdn/widget/Widget_2.js'></script>
     <script type='text/javascript'>kofiwidget2.init('Support me on Ko-fi', '#72a4f2', 'B1I8277GQK');kofiwidget2.draw();</script>
   </div>
-  <div style="margin-top:6px;">v0.4.4</div>
+  <div style="margin-top:6px;">v0.4.5</div>
 </footer>
 
 <script>
@@ -980,8 +980,8 @@
     for (var idx = 0, mi = 0; idx < mask.length; idx++) {
       if (mask[idx]) { maskX[mi] = idx % w; maskY[mi] = (idx / w) | 0; mi++; }
     }
-    var maxVotePoints = 6000;
-    var stride = Math.max(1, Math.floor(maskCount / maxVotePoints));
+    // detection image is already capped small (maxDim below), so every mask pixel can vote;
+    // subsampling here previously starved small isolated circles of enough votes to be found.
 
     var rMin = Math.max(6, Math.round(Math.min(w,h) * 0.015));
     var rMax = Math.max(rMin + 10, Math.round(Math.min(w,h) * 0.07));
@@ -999,7 +999,7 @@
 
     for (var r = rMin; r <= rMax; r += rStep) {
       acc.fill(0);
-      for (var mp = 0; mp < maskCount; mp += stride) {
+      for (var mp = 0; mp < maskCount; mp++) {
         var mx = maskX[mp], my = maskY[mp];
         for (var a2 = 0; a2 < angleSteps; a2++) {
           var cx = (mx + r*cosTab[a2]) | 0, cy = (my + r*sinTab[a2]) | 0;
