@@ -9,7 +9,7 @@ Route Overlay is a single-page, client-only web app (PWA) for orienteering. A us
 3. Picks 2+ matching point pairs (a point on the route vs. the same physical spot on the map photo) to compute a similarity transform (rotation + uniform scale + translation) that maps route coordinates onto the photo.
 4. Fine-tunes the alignment with sliders or by dragging the overlay directly, then exports a PNG of the map photo with the route drawn on top, at full photo resolution.
 
-Everything runs in the browser — no server, no backend, no network calls, no data upload, other than the Ko-fi donate widget in the footer (loads `storage.ko-fi.com`'s script, explicitly requested by the site owner). This is otherwise a deliberate privacy/simplicity feature; do not add a backend or other external API calls unless the user explicitly asks for it.
+Everything runs in the browser — no server, no backend, no network calls, no data upload, other than the Ko-fi donate widget in the footer. Loading that widget makes three third-party requests regardless of whether the visitor clicks it: `storage.ko-fi.com`'s widget script and two of its CDN images, plus a Google Fonts stylesheet (`fonts.googleapis.com/css?family=Quicksand...`) that the widget script itself injects. All were explicitly requested/accepted by the site owner. The widget script's own code has no cookies, analytics, or tracking calls — it only builds a link/button — but any third-party-hosted request inherently exposes standard metadata (IP, User-Agent, Referer) to that third party's server logs, the same as any embedded image or font would. This is otherwise a deliberate privacy/simplicity feature; do not add a backend or other external API calls unless the user explicitly asks for it.
 
 ## Structure
 
